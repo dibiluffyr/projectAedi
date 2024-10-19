@@ -43,6 +43,10 @@ const userSchema = new mongoose.Schema({
             default: []
         }
     ],
+    profileImg: {
+        type: String,
+        default: "",
+    },
     totalNice: {
         type: Number,
         default: 0

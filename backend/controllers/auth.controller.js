@@ -42,10 +42,14 @@ export const signup = async (req, res) => {
 
             res.status(201).json({
                 _id: newUser._id,
+                username: newUser.username,
                 email: newUser.email,
                 totalNice: newUser.totalNice,
                 followers: newUser.followers,
                 following: newUser.following,
+                profileImg: newUser.profileImg,
+
+                
             });
         } else {
             res.status(400).json({ error: "Invalid user data" });
@@ -74,9 +78,12 @@ export const login = async (req, res) => {
         res.status(201).json({
             _id: user._id,
             email: user.email,
+            username:  user.username,
             totalNice: user.totalNice,
-            followers: newUser.followers,
-            following: newUser.following,
+            followers: user.followers,
+            following: user.following,
+            profileImg:  user.profileImg,
+
         });
 
 
