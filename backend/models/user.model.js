@@ -50,7 +50,21 @@ const userSchema = new mongoose.Schema({
     totalNice: {
         type: Number,
         default: 0
-    }
+    },
+    adaptEdits: [
+        {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Post",
+            default: [],
+        }
+    ],
+    adaptNexts: [
+        {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Post",
+            default: [],
+        }
+    ]
 }, {timestamps: true});
 
 const User = mongoose.model("User", userSchema);
