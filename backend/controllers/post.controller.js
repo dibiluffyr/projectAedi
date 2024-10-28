@@ -373,3 +373,106 @@ export const getUserPosts = async (req, res) => {
     res.status(500).json({ message: "Internal Server Error" });
   }
 }
+
+export const likeUnlikeAdaptEdit = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const adaptEditId = req.params.id;
+
+    const post = await Post.findOne({
+      "adaptEdits._id": adaptEditId
+    });
+
+    if (!post) {
+      return res.status(404).json({ error: "Post or AdaptEdit not found" });
+    }
+
+    const adaptEdit = post.adaptEdits.find(
+      (edit) => edit._id.toString() === adaptEditId
+    );
+
+    if (!adaptEdit) {
+      return res.status(404).json({ error: "AdaptEdit not found" });
+    }
+
+    const userLikedAdaptEdit = adaptEdit.likes?.includes(userId);
+
+    if (userLikedAdaptEdit) {
+      // Unlike
+      adaptEdit.likes = adaptEdit.likes.filter(
+        (id) => id.toString() !== userId.toString()
+      );
+    } else {
+      // Like
+      if (!adaptEdit.likes) {
+        adaptEdit.likes = [];
+      }
+      adaptEdit.likes.push(userId);
+
+      // Create notification
+      const notification = new Notification({
+        from: userId,
+        to: adaptEdit.user,
+        type: 'likeAdaptEdit'
+      });
+      await notification.save();
+    }
+
+    await post.save();
+    res.status(200).json(adaptEdit.likes);
+  } catch (error) {
+    console.log("Error in likeUnlikeAdaptEdit", error.message);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+export const likeUnlikeAdaptNext = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const adaptNextId = req.params.id;
+
+    const post = await Post.findOne({
+      "adaptNexts._id": adaptNextId
+    });
+
+    if (!post) {
+      return res.status(404).json({ error: "Post or AdaptNext not found" });
+    }
+
+    const adaptNext = post.adaptNexts.find(
+      (next) => next._id.toString() === adaptNextId
+    );
+
+    if (!adaptNext) {
+      return res.status(404).json({ error: "AdaptNext not found" });
+    }
+    const userLikedAdaptNext = adaptNext.likes?.includes(userId);
+
+    if (userLikedAdaptNext) {
+      // Unlike
+      adaptNext.likes = adaptNext.likes.filter(
+        (id) => id.toString() !== userId.toString()
+      );
+    } else {
+      // Like
+      if (!adaptNext.likes) {
+        adaptNext.likes = [];
+      }
+      adaptNext.likes.push(userId);
+
+      // Create notification
+      const notification = new Notification({
+        from: userId,
+        to: adaptNext.user,
+        type: 'likeAdaptNext'
+      });
+      await notification.save();
+    }
+
+    await post.save();
+    res.status(200).json(adaptNext.likes);
+  } catch (error) {
+    console.log("Error in likeUnlikeAdaptNext", error.message);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};

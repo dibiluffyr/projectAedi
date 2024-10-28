@@ -6,12 +6,12 @@ import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "react-hot-toast";
 import LoadingSpinner from "./LoadingSpinner";
+import { formatPostDate } from '../../utils/date';
 
 const Post = ({ post }) => {
   const [adaptEdit, setAdaptEdit] = useState("");
   const [adaptNext, setAdaptNext] = useState("");
-  const [showComments, setShowComments] = useState(false);
-  const [showAdaptNext, setShowAdaptNext] = useState(false);
+  const [activeSection, setActiveSection] = useState(null); // null, 'adaptEdit', or 'adaptNext'
   const { data: authUser } = useQuery({ queryKey: ["authUser"] });
   const queryClient = useQueryClient();
 
@@ -141,6 +141,171 @@ const Post = ({ post }) => {
     }
   });
 
+  const { mutate: adaptEditPost, isPending: isAdaptingEdit } = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/posts/adaptEdit/${post._id}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ 
+          text: adaptEdit.trim() 
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Something went wrong");
+      }
+      return data;
+    },
+    onSuccess: (newAdaptEdit) => {
+      queryClient.setQueryData(["posts"], (oldData) => {
+        if (!oldData) return oldData;
+        
+        return oldData.map((p) => {
+          if (p._id === post._id) {
+            const updatedPost = {
+              ...p,
+              adaptEdits: [...(p.adaptEdits || []), {
+                _id: newAdaptEdit._id, // Ensure we have the correct ID
+                text: adaptEdit.trim(), // Use the actual input text
+                user: authUser,
+                createdAt: new Date().toISOString(),
+                likes: []
+              }]
+            };
+            return updatedPost;
+          }
+          return p;
+        });
+      });
+      
+      setAdaptEdit("");
+    
+      toast.success("AdaptEdit posted successfully");
+    },
+    onError: (error) => {
+      toast.error(error.message);
+    }
+  });
+
+  const { mutate: adaptNextPost, isPending: isAdaptingNext } = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/posts/adaptNext/${post._id}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ 
+          text: adaptNext.trim() 
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Something went wrong");
+      }
+      return data;
+    },
+    onSuccess: (newAdaptNext) => {
+      queryClient.setQueryData(["posts"], (oldData) => {
+        if (!oldData) return oldData;
+        
+        return oldData.map((p) => {
+          if (p._id === post._id) {
+            const updatedPost = {
+              ...p,
+              adaptNexts: [...(p.adaptNexts || []), {
+                _id: newAdaptNext._id,
+                text: adaptNext.trim(),
+                user: authUser,
+                createdAt: new Date().toISOString(),
+                likes: []
+              }]
+            };
+            return updatedPost;
+          }
+          return p;
+        });
+      });
+      
+      setAdaptNext("");
+      toast.success("AdaptNext posted successfully");
+    },
+    onError: (error) => {
+      toast.error(error.message);
+    }
+  });
+
+  const { mutate: deleteAdaptEdit, isPending: isDeletingAdaptEdit } = useMutation({
+    mutationFn: async (adaptEditId) => {
+      try {
+        const res = await fetch(`/api/posts/adaptEdit/${adaptEditId}`, {
+          method: "DELETE",
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || "Something went wrong");
+        }
+        return data;
+      } catch (error) {
+        throw new Error(error);
+      }
+    },
+    onSuccess: (_, adaptEditId) => {
+      queryClient.setQueryData(["posts"], (oldData) => {
+        return oldData.map((p) => {
+          if (p._id === post._id) {
+            return {
+              ...p,
+              adaptEdits: p.adaptEdits.filter((edit) => edit._id !== adaptEditId),
+            };
+          }
+          return p;
+        });
+      });
+      toast.success("AdaptEdit deleted successfully");
+    },
+    onError: (error) => {
+      toast.error(error.message);
+    }
+  });
+
+  const { mutate: deleteAdaptNext, isPending: isDeletingAdaptNext } = useMutation({
+    mutationFn: async (adaptNextId) => {
+      try {
+        const res = await fetch(`/api/posts/adaptNext/${adaptNextId}`, {
+          method: "DELETE",
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || "Something went wrong");
+        }
+        return data;
+      } catch (error) {
+        throw new Error(error);
+      }
+    },
+    onSuccess: (_, adaptNextId) => {
+      queryClient.setQueryData(["posts"], (oldData) => {
+        return oldData.map((p) => {
+          if (p._id === post._id) {
+            return {
+              ...p,
+              adaptNexts: p.adaptNexts.filter((next) => next._id !== adaptNextId),
+            };
+          }
+          return p;
+        });
+      });
+      toast.success("AdaptNext deleted successfully");
+    },
+    onError: (error) => {
+      toast.error(error.message);
+    }
+  });
+
   const handleLikePost = () => {
     if (isLikingPost) return;
     likePost();
@@ -148,20 +313,37 @@ const Post = ({ post }) => {
 
   const handlePostAdaptEdit = (e) => {
     e.preventDefault();
-    // Add your adaptEdit posting logic here
-    setAdaptEdit("");
+    if (!adaptEdit.trim()) {
+      toast.error("Please enter some text");
+      return;
+    }
+    if (isAdaptingEdit) return;
+    adaptEditPost();
   };
 
   const handlePostAdaptNext = (e) => {
     e.preventDefault();
-    // Add your adaptNext posting logic here
-    setAdaptNext("");
+    if (!adaptNext.trim()) {
+      toast.error("Please enter some text");
+      return;
+    }
+    if (isAdaptingNext) return;
+    adaptNextPost();
+  };
+
+  const handleAdaptEditClick = () => {
+    setActiveSection(activeSection === 'adaptEdit' ? null : 'adaptEdit');
+  };
+
+  const handleAdaptNextClick = () => {
+    setActiveSection(activeSection === 'adaptNext' ? null : 'adaptNext');
   };
 
   const handleLikeAdaptEdit = (adaptEditId) => {
     if (isLikingAdaptEdit) return;
     likeAdaptEdit(adaptEditId);
   };
+
 
   const handleLikeAdaptNext = (adaptNextId) => {
     if (isLikingAdaptNext) return;
@@ -179,6 +361,8 @@ const Post = ({ post }) => {
       </div>
     </Link>
   );
+
+  
 
   const LikeButton = ({ isLiking, isLiked, likes, onClick }) => {
     // Ensure likes is always an array
@@ -206,79 +390,60 @@ const Post = ({ post }) => {
 
   return (
     <div className="flex flex-col border-b border-gray-700">
-      {/* Main Post */}
       <div className="flex gap-2 items-start p-4">
         <div className="avatar">
           <AvatarImage src={post.user.profileImg} username={post.user.username} />
         </div>
         
         <div className="flex flex-col flex-1">
-          {/* Post Header */}
           <div className="flex gap-2 items-center">
             <Link to={`/profile/${post.user.username}`} className="font-bold">
               {post.user.fullName}
             </Link>
             <span className="text-gray-700 flex gap-1 text-sm">
               <Link to={`/profile/${post.user.username}`}>@{post.user.username}</Link> 
-              <span>{post.formattedDate}</span>
+              · <span>{formatPostDate(post.createdAt)}</span>
             </span>
-            {authUser._id === post.user._id && (
-              <span className="flex justify-end flex-1">
-                {!isDeleting ? (
-                  <FaTrash 
-                    className="cursor-pointer hover:text-red-500" 
-                    onClick={() => deletePost()}
-                  />
-                ) : (
-                  <LoadingSpinner size="sm" />
-                )}
-              </span>
-            )}
           </div>
 
-          {/* Post Content */}
           <div className="mt-2">
             <span>{post.text}</span>
           </div>
 
-          {/* Post Actions */}
-          <div className="flex justify-between mt-3">
-            <div className="flex gap-8 items-center">
-              <div 
-                className="flex gap-1 items-center cursor-pointer group"
-                onClick={() => setShowComments(!showComments)}
-              >
-                <FaRegComment className="w-4 h-4 text-slate-500 group-hover:text-sky-400" />
-                <span className="text-sm text-slate-500 group-hover:text-sky-400">
-                  {post.adaptEdits.length}
-                </span>
-              </div>
-              <div 
-                className="flex gap-1 items-center group cursor-pointer"
-                onClick={() => setShowAdaptNext(!showAdaptNext)}
-              >
-                <BiRepost className="w-6 h-6 text-slate-500 group-hover:text-green-500" />
-                <span className="text-sm text-slate-500 group-hover:text-green-500">
-                  {post.adaptNexts?.length || 0}
-                </span>
-              </div>
+          <div className="flex gap-8 items-center mt-3">
+            <button
+              className={`flex items-center gap-1 text-sm ${
+                activeSection === 'adaptEdit' ? 'text-sky-400' : 'text-gray-500 hover:text-sky-400'
+              }`}
+              onClick={handleAdaptEditClick}
+            >
+              Adapt Edit
+              <span>{post.adaptEdits.length}</span>
+            </button>
 
-              <LikeButton 
-                isLiking={isLikingPost}
-                isLiked={post.likes.includes(authUser._id)}
-                likes={post.likes}
-                onClick={handleLikePost}
-              />
-              <FaRegBookmark className="w-4 h-4 text-slate-500 cursor-pointer" />
-            </div>
+            <button
+              className={`flex items-center gap-1 text-sm ${
+                activeSection === 'adaptNext' ? 'text-green-500' : 'text-gray-500 hover:text-green-500'
+              }`}
+              onClick={handleAdaptNextClick}
+            >
+              Adapt Next
+              <span>{post.adaptNexts?.length || 0}</span>
+            </button>
+
+            <LikeButton 
+              isLiking={isLikingPost}
+              isLiked={post.likes.includes(authUser._id)}
+              likes={post.likes}
+              onClick={handleLikePost}
+            />
           </div>
         </div>
       </div>
 
       {/* AdaptEdit Section */}
-      {showComments && (
+      {activeSection === 'adaptEdit' && (
         <div className="px-4 pb-4">
-          {/* AdaptEdit Input */}
           <form onSubmit={handlePostAdaptEdit} className="flex gap-2 items-start mb-4 ml-10">
             <div className="avatar">
               <AvatarImage src={authUser.profileImg} username={authUser.username} />
@@ -290,19 +455,20 @@ const Post = ({ post }) => {
                 value={adaptEdit}
                 onChange={(e) => setAdaptEdit(e.target.value)}
                 rows="2"
+                required
               />
               <div className="flex justify-end mt-2">
                 <button 
-                  className="bg-sky-500 hover:bg-sky-600 text-white px-4 py-1 rounded-full text-sm font-medium"
+                  className="bg-sky-500 hover:bg-sky-600 text-white px-4 py-1 rounded-full text-sm font-medium disabled:opacity-50"
                   type="submit"
+                  disabled={isAdaptingEdit || !adaptEdit.trim()}
                 >
-                  AdaptEdit
+                  {isAdaptingEdit ? <LoadingSpinner size="sm" /> : "AdaptEdit"}
                 </button>
               </div>
             </div>
           </form>
 
-          {/* AdaptEdits List */}
           <div className="flex flex-col gap-4">
             {post.adaptEdits.map((edit) => (
               <div key={edit._id} className="flex gap-2 ml-10">
@@ -318,16 +484,17 @@ const Post = ({ post }) => {
                       {edit.user.fullName}
                     </Link>
                     <span className="text-gray-500 text-sm">
-                      @{edit.user.username}
+                      @{edit.user.username} · {formatPostDate(edit.createdAt)}
                     </span>
                   </div>
+                  
                   <p className="text-sm mt-1">{edit.text}</p>
                   <div className="flex gap-4 mt-2">
                     <LikeButton 
-                      isLiking={isLikingPost}
-                      isLiked={Array.isArray(post.likes) && post.likes.includes(authUser._id)}
-                      likes={post.likes || []}  // Provide empty array as fallback
-                      onClick={handleLikePost}
+                      isLiking={isLikingAdaptEdit}
+                      isLiked={edit.likes?.includes(authUser._id)}
+                      likes={edit.likes || []}
+                      onClick={() => handleLikeAdaptEdit(edit._id)}
                     />
                   </div>
                 </div>
@@ -338,9 +505,8 @@ const Post = ({ post }) => {
       )}
 
       {/* AdaptNext Section */}
-      {showAdaptNext && (
+      {activeSection === 'adaptNext' && (
         <div className="px-4 pb-4 border-t border-gray-700">
-          {/* AdaptNext Input */}
           <form onSubmit={handlePostAdaptNext} className="flex gap-2 items-start mb-4 ml-10">
             <div className="avatar">
               <AvatarImage src={authUser.profileImg} username={authUser.username} />
@@ -352,19 +518,20 @@ const Post = ({ post }) => {
                 value={adaptNext}
                 onChange={(e) => setAdaptNext(e.target.value)}
                 rows="2"
+                required
               />
               <div className="flex justify-end mt-2">
                 <button 
-                  className="bg-green-500 hover:bg-green-600 text-white px-4 py-1 rounded-full text-sm font-medium"
+                  className="bg-green-500 hover:bg-green-600 text-white px-4 py-1 rounded-full text-sm font-medium disabled:opacity-50"
                   type="submit"
+                  disabled={isAdaptingNext || !adaptNext.trim()}
                 >
-                  AdaptNext
+                  {isAdaptingNext ? <LoadingSpinner size="sm" /> : "AdaptNext"}
                 </button>
               </div>
             </div>
           </form>
 
-          {/* AdaptNexts List */}
           <div className="flex flex-col gap-4">
             {post.adaptNexts?.map((next) => (
               <div key={next._id} className="flex gap-2 ml-10">
@@ -380,15 +547,16 @@ const Post = ({ post }) => {
                       {next.user.fullName}
                     </Link>
                     <span className="text-gray-500 text-sm">
-                      @{next.user.username}
+                      @{next.user.username} · {formatPostDate(next.createdAt)}
                     </span>
                   </div>
+                 
                   <p className="text-sm mt-1">{next.text}</p>
                   <div className="flex gap-4 mt-2">
                     <LikeButton 
                       isLiking={isLikingAdaptNext}
                       isLiked={next.likes?.includes(authUser._id)}
-                      likes={next.likes}
+                      likes={next.likes || []}
                       onClick={() => handleLikeAdaptNext(next._id)}
                     />
                   </div>
