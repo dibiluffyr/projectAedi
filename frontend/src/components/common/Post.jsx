@@ -1,7 +1,5 @@
 import React, { useState } from 'react';
-import { FaRegComment, FaRegHeart, FaTrash } from "react-icons/fa";
-import { BiRepost } from "react-icons/bi";
-import { FaRegBookmark } from "react-icons/fa6";
+import { FaRegHeart, FaTrash } from "react-icons/fa";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "react-hot-toast";
@@ -14,6 +12,8 @@ const Post = ({ post }) => {
   const [activeSection, setActiveSection] = useState(null); // null, 'adaptEdit', or 'adaptNext'
   const { data: authUser } = useQuery({ queryKey: ["authUser"] });
   const queryClient = useQueryClient();
+
+  
 
   const { mutate: deletePost, isPending: isDeleting } = useMutation({
     mutationFn: async () => {
@@ -48,25 +48,67 @@ const Post = ({ post }) => {
         }
         return data;
       } catch (error) {
-        throw new Error(error);
+        throw new Error(error.message);
       }
     },
-    onSuccess: (updatedLikes) => {
-      queryClient.setQueryData(["posts"], (oldData) => {
-        return oldData.map((p) => {
+    onMutate: async () => {
+      // Cancel any outgoing refetches so they don't overwrite our optimistic update
+      await queryClient.cancelQueries({ queryKey: ["posts"] });
+  
+      // Get the current state of all post queries
+      const previousPosts = queryClient.getQueriesData({ queryKey: ["posts"] });
+  
+      // Optimistically update all post queries
+      queryClient.setQueriesData({ queryKey: ["posts"] }, (old) => {
+        if (!old) return old;
+        if (!Array.isArray(old)) return old;
+  
+        return old.map((p) => {
           if (p._id === post._id) {
-            return { ...p, likes: updatedLikes || [] };  // Ensure likes is an array
+            const isLiked = p.likes.includes(authUser._id);
+            return {
+              ...p,
+              likes: isLiked
+                ? p.likes.filter((id) => id !== authUser._id)
+                : [...p.likes, authUser._id],
+            };
           }
           return p;
         });
       });
-      toast.success("Post liked successfully");
+  
+      // Return previous posts to roll back if something goes wrong
+      return { previousPosts };
     },
-    onError: (error) => {
+    onError: (error, variables, context) => {
+      // Roll back all post queries to their previous values
+      context.previousPosts.forEach(([queryKey, previousValue]) => {
+        queryClient.setQueryData(queryKey, previousValue);
+      });
       toast.error(error.message);
-    }
+    },
+    onSuccess: (data) => {
+      // Update all post queries with the actual server response
+      queryClient.setQueriesData({ queryKey: ["posts"] }, (old) => {
+        if (!old) return old;
+        if (!Array.isArray(old)) return old;
+  
+        return old.map((p) => {
+          if (p._id === post._id) {
+            return {
+              ...p,
+              likes: Array.isArray(data) ? data : data.likes || [],
+            };
+          }
+          return p;
+        });
+      });
+    },
+    // Always refetch after error or success to ensure data consistency
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["posts"] });
+    },
   });
-
   const { mutate: likeAdaptEdit, isPending: isLikingAdaptEdit } = useMutation({
     mutationFn: async (adaptEditId) => {
       try {
@@ -159,34 +201,64 @@ const Post = ({ post }) => {
       }
       return data;
     },
-    onSuccess: (newAdaptEdit) => {
-      queryClient.setQueryData(["posts"], (oldData) => {
-        if (!oldData) return oldData;
-        
-        return oldData.map((p) => {
+    onMutate: async () => {
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ["posts"] });
+
+      // Snapshot current data
+      const previousPosts = queryClient.getQueryData(["posts"]);
+
+      // Optimistically update posts
+      queryClient.setQueryData(["posts"], (old) => {
+        if (!old) return old;
+        return old.map((p) => {
           if (p._id === post._id) {
-            const updatedPost = {
-              ...p,
-              adaptEdits: [...(p.adaptEdits || []), {
-                _id: newAdaptEdit._id, // Ensure we have the correct ID
-                text: adaptEdit.trim(), // Use the actual input text
-                user: authUser,
-                createdAt: new Date().toISOString(),
-                likes: []
-              }]
+            const optimisticAdaptEdit = {
+              _id: Date.now().toString(), // temporary ID
+              text: adaptEdit.trim(),
+              user: authUser,
+              createdAt: new Date().toISOString(),
+              likes: []
             };
-            return updatedPost;
+            return {
+              ...p,
+              adaptEdits: [...(p.adaptEdits || []), optimisticAdaptEdit]
+            };
           }
           return p;
         });
       });
-      
+
+      return { previousPosts };
+    },
+    onError: (err, newAdaptEdit, context) => {
+      queryClient.setQueryData(["posts"], context.previousPosts);
+      toast.error(err.message);
+    },
+    onSuccess: (newAdaptEdit) => {
+      queryClient.setQueryData(["posts"], (old) => {
+        if (!old) return old;
+        return old.map((p) => {
+          if (p._id === post._id) {
+            const updatedAdaptEdits = p.adaptEdits.map((edit) => {
+              // Replace our optimistic adaptEdit with the real one
+              if (!edit._id.includes('-')) return edit;
+              return newAdaptEdit;
+            });
+            return {
+              ...p,
+              adaptEdits: updatedAdaptEdits
+            };
+          }
+          return p;
+        });
+      });
       setAdaptEdit("");
-    
       toast.success("AdaptEdit posted successfully");
     },
-    onError: (error) => {
-      toast.error(error.message);
+    onSettled: () => {
+      // Always refetch to ensure consistency
+      queryClient.invalidateQueries({ queryKey: ["posts"] });
     }
   });
 
@@ -208,103 +280,64 @@ const Post = ({ post }) => {
       }
       return data;
     },
-    onSuccess: (newAdaptNext) => {
-      queryClient.setQueryData(["posts"], (oldData) => {
-        if (!oldData) return oldData;
-        
-        return oldData.map((p) => {
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: ["posts"] });
+
+      const previousPosts = queryClient.getQueryData(["posts"]);
+
+      queryClient.setQueryData(["posts"], (old) => {
+        if (!old) return old;
+        return old.map((p) => {
           if (p._id === post._id) {
-            const updatedPost = {
-              ...p,
-              adaptNexts: [...(p.adaptNexts || []), {
-                _id: newAdaptNext._id,
-                text: adaptNext.trim(),
-                user: authUser,
-                createdAt: new Date().toISOString(),
-                likes: []
-              }]
+            const optimisticAdaptNext = {
+              _id: Date.now().toString(), // temporary ID
+              text: adaptNext.trim(),
+              user: authUser,
+              createdAt: new Date().toISOString(),
+              likes: []
             };
-            return updatedPost;
+            return {
+              ...p,
+              adaptNexts: [...(p.adaptNexts || []), optimisticAdaptNext]
+            };
           }
           return p;
         });
       });
-      
+
+      return { previousPosts };
+    },
+    onError: (err, newAdaptNext, context) => {
+      queryClient.setQueryData(["posts"], context.previousPosts);
+      toast.error(err.message);
+    },
+    onSuccess: (newAdaptNext) => {
+      queryClient.setQueryData(["posts"], (old) => {
+        if (!old) return old;
+        return old.map((p) => {
+          if (p._id === post._id) {
+            const updatedAdaptNexts = p.adaptNexts.map((next) => {
+              // Replace our optimistic adaptNext with the real one
+              if (!next._id.includes('-')) return next;
+              return newAdaptNext;
+            });
+            return {
+              ...p,
+              adaptNexts: updatedAdaptNexts
+            };
+          }
+          return p;
+        });
+      });
       setAdaptNext("");
       toast.success("AdaptNext posted successfully");
     },
-    onError: (error) => {
-      toast.error(error.message);
+    onSettled: () => {
+      // Always refetch to ensure consistency
+      queryClient.invalidateQueries({ queryKey: ["posts"] });
     }
   });
 
-  const { mutate: deleteAdaptEdit, isPending: isDeletingAdaptEdit } = useMutation({
-    mutationFn: async (adaptEditId) => {
-      try {
-        const res = await fetch(`/api/posts/adaptEdit/${adaptEditId}`, {
-          method: "DELETE",
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.error || "Something went wrong");
-        }
-        return data;
-      } catch (error) {
-        throw new Error(error);
-      }
-    },
-    onSuccess: (_, adaptEditId) => {
-      queryClient.setQueryData(["posts"], (oldData) => {
-        return oldData.map((p) => {
-          if (p._id === post._id) {
-            return {
-              ...p,
-              adaptEdits: p.adaptEdits.filter((edit) => edit._id !== adaptEditId),
-            };
-          }
-          return p;
-        });
-      });
-      toast.success("AdaptEdit deleted successfully");
-    },
-    onError: (error) => {
-      toast.error(error.message);
-    }
-  });
-
-  const { mutate: deleteAdaptNext, isPending: isDeletingAdaptNext } = useMutation({
-    mutationFn: async (adaptNextId) => {
-      try {
-        const res = await fetch(`/api/posts/adaptNext/${adaptNextId}`, {
-          method: "DELETE",
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.error || "Something went wrong");
-        }
-        return data;
-      } catch (error) {
-        throw new Error(error);
-      }
-    },
-    onSuccess: (_, adaptNextId) => {
-      queryClient.setQueryData(["posts"], (oldData) => {
-        return oldData.map((p) => {
-          if (p._id === post._id) {
-            return {
-              ...p,
-              adaptNexts: p.adaptNexts.filter((next) => next._id !== adaptNextId),
-            };
-          }
-          return p;
-        });
-      });
-      toast.success("AdaptNext deleted successfully");
-    },
-    onError: (error) => {
-      toast.error(error.message);
-    }
-  });
 
   const handleLikePost = () => {
     if (isLikingPost) return;
@@ -396,14 +429,31 @@ const Post = ({ post }) => {
         </div>
         
         <div className="flex flex-col flex-1">
-          <div className="flex gap-2 items-center">
-            <Link to={`/profile/${post.user.username}`} className="font-bold">
-              {post.user.fullName}
-            </Link>
-            <span className="text-gray-700 flex gap-1 text-sm">
-              <Link to={`/profile/${post.user.username}`}>@{post.user.username}</Link> 
-              · <span>{formatPostDate(post.createdAt)}</span>
-            </span>
+          <div className="flex gap-2 items-center justify-between">
+            <div className="flex gap-2 items-center">
+              <Link to={`/profile/${post.user.username}`} className="font-bold">
+                {post.user.fullName}
+              </Link>
+              <span className="text-gray-700 flex gap-1 text-sm">
+                <Link to={`/profile/${post.user.username}`}>@{post.user.username}</Link> 
+                · <span>{formatPostDate(post.createdAt)}</span>
+              </span>
+            </div>
+            
+            {/* Add delete button if the post belongs to the current user */}
+            {post.user._id === authUser._id && (
+              <button
+                onClick={() => deletePost()}
+                disabled={isDeleting}
+                className="text-gray-500 hover:text-red-500"
+              >
+                {isDeleting ? (
+                  <LoadingSpinner size="sm" />
+                ) : (
+                  <FaTrash className="w-3 h-3" />
+                )}
+              </button>
+            )}
           </div>
 
           <div className="mt-2">
