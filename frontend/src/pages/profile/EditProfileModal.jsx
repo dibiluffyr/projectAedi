@@ -1,9 +1,11 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 
 const EditProfileModal = ({authUser}) => {
 	const queryClient = useQueryClient();
+	const navigate = useNavigate();
 	const [formData, setFormData] = useState({
 		username: "",
 		email: "",
@@ -11,9 +13,7 @@ const EditProfileModal = ({authUser}) => {
 		currentPassword: "",
 	});
 
-	
-
-	const { mutate: updateProfile, isPending: isUpdatingProfile } = useMutation({
+	const { mutateAsync: updateProfile, isPending: isUpdatingProfile } = useMutation({
 		mutationFn: async() => {
 			try {
 				const res = await fetch(`/api/users/update`, {
@@ -33,12 +33,18 @@ const EditProfileModal = ({authUser}) => {
 				throw new Error(error);
 			}
 		},
-		onSuccess: () => {
+		onSuccess: (data) => {
 			toast.success("Profile updated successfully");
 			Promise.all([
 				queryClient.invalidateQueries({ queryKey: ["authUser"] }),
 				queryClient.invalidateQueries({ queryKey: ["userProfile"] }),
-			])
+			]);
+
+			if (data.username !== authUser.username) {
+				navigate(`/profile/${data.username}`);
+			}
+
+			document.getElementById("edit_profile_modal").close();
 		},
 		onError: (error) => {
 			toast.error(error.message);

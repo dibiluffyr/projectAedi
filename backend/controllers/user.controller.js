@@ -4,8 +4,6 @@ import bcrypt from "bcryptjs";
 import { v2  as cloudinary} from "cloudinary";
 
 
-
-
 export const getUserProfile = async (req, res) => {
     
     const { username } = req.params;
@@ -22,6 +20,21 @@ export const getUserProfile = async (req, res) => {
         res.status(500).json({ error: "Internal Server Error" });
 
 
+    }
+}
+
+export const deleteUserProfile = async (req, res) => {
+    try {
+        const userId = req.user._id;  
+        const user = await User.findById(userId); 
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+        await User.findByIdAndDelete(userId);  
+        res.status(200).json({ message: "User deleted successfully" });
+    } catch (error) {
+        console.log("Error in deleteUserProfile", error.message);
+        res.status(500).json({ error: "Internal Server Error" });
     }
 }
 
@@ -146,9 +159,42 @@ export const updateUser = async (req, res) => {
         user.password = null;
 
         return res.status(200).json(user);
+        
 
     } catch (error) {
         console.log("Error in updateUser", error.message);
         return res.status(500).json({ message: "Internal Server Error" });
     }
 }
+
+export const searchUsers = async (req, res) => {
+    try {
+      const { username } = req.query;
+  
+      if (!username || username.length < 3) {
+        return res.status(400).json({ message: 'Please enter at least 3 characters to search.' });
+      }
+  
+      const currentUser = await User.findById(req.user._id);
+  
+      const users = await User.find(
+        { username: { $regex: new RegExp(username, 'i') } },
+        { username: 1, profileImg: 1 }
+      );
+  
+      const searchResults = users.map((user) => {
+        const isFollowing = currentUser.following.includes(user._id.toString());
+        return {
+          _id: user._id,
+          username: user.username,
+          profileImg: user.profileImg,
+          isFollowing,
+        };
+      });
+  
+      res.status(200).json(searchResults);
+    } catch (error) {
+      console.error('Error in searchUsers:', error.message);
+      res.status(500).json({ message: 'Internal Server Error' });
+    }
+  };

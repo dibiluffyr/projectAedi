@@ -1,15 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-
+import { Link, useNavigate, useParams } from "react-router-dom";
 import Posts from "../../components/common/Posts";
 import ProfileHeaderSkeleton from "../../components/skeletons/ProfileHeaderSkeleton";
 import EditProfileModal from "./EditProfileModal";
 
-import { POSTS } from "../../utils/db/dummy";
-
-import { FaArrowLeft } from "react-icons/fa6";
+import { FaArrowLeft, FaLink } from "react-icons/fa";
 import { IoCalendarOutline } from "react-icons/io5";
-import { FaLink } from "react-icons/fa";
 import { MdEdit } from "react-icons/md";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatMemberSinceDate } from "../../utils/date";
@@ -17,250 +13,247 @@ import UseFollow from "../../hooks/UseFollow";
 import toast from "react-hot-toast";
 
 const ProfilePage = () => {
+  const [profileImg, setProfileImg] = useState(null);
+  const [feedType, setFeedType] = useState("posts");
+  const profileImgRef = useRef(null);
+  const {username} = useParams();
+  const navigate = useNavigate();
 
-	const [coverImg, setCoverImg] = useState(null);
-	const [profileImg, setProfileImg] = useState(null);
-	const [feedType, setFeedType] = useState("posts");
+  const { follow, isPending } = UseFollow();
+  const queryClient = useQueryClient();
+  const { data: authUser } = useQuery({
+    queryKey: ["authUser"],
+  });
 
-	const coverImgRef = useRef(null);
-	const profileImgRef = useRef(null);
+const { data: user, isLoading, refetch, isRefetching } = useQuery({
+    queryKey: ["userProfile"],
+    queryFn: async() => {
+      try {
+        const res = await fetch(`/api/users/profile/${username}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Something went wrong");
+        return data;
+      } catch (error) {
+        throw new Error(error);
+      }
+    },
+});
 
-	const {username} = useParams();
+const { mutate: updateProfile, isPending: isUpdatingProfile } = useMutation({
+  mutationFn: async() => {
+    try {
+      const res = await fetch(`/api/users/update`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          profileImg,
+        }),
+      })
+      const data = await res.json();
 
-	const { follow, isPending } = UseFollow();
-	const queryClient = useQueryClient();
-	const { data: authUser } = useQuery({
-		queryKey: ["authUser"],
-	})
-	
+      if (!res.ok) {
+        throw new Error(data.error || "Something went wrong");
+      }
+      return data
+    } catch (error) {
+      throw new Error(error);
+    }
+  },
+  onSuccess: () => {
+    toast.success("Profile updated successfully");
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["authUser"] }),
+      queryClient.invalidateQueries({ queryKey: ["userProfile"] }),
+    ])
+  },
+  onError: (error) => {
+    toast.error(error.message);
+  },
+});
 
-	const { data: user, isLoading, refetch, isRefetching } = useQuery({
-		queryKey: ["userProfile"],
-		queryFn: async() => {
-			try {
-				const res = await fetch(`/api/users/profile/${username}`);
-				const data = await res.json();
+const { mutate: deleteProfile, isPending: isDeleting } = useMutation({
+    mutationFn: async () => {
+      try {
+        const res = await fetch(`/api/users/delete/${user?._id}`, {
+          method: "DELETE",
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || "Error deleting profile");
 
-				if (!res.ok) {
-					throw new Error(data.error || "Something went wrong");
-				}
+        const logoutRes = await fetch('/api/auth/logout', {
+          method: 'POST',
+          credentials: 'include' 
+        });
+        
+        if (!logoutRes.ok) {
+          throw new Error('Error logging out');
+        }
 
-				return data;
-			} catch (error) {
-				throw new Error(error);
-			}
-		},
-	});
+        return data;
+      } catch (error) {
+        throw error;
+      }
+    },
+    onSuccess: () => {
+      queryClient.setQueryData(["authUser"], null);
+      queryClient.clear(); 
+      toast.success("Profile deleted successfully");
+      navigate('/login'); 
+    },
+    onError: (error) => {
+      toast.error(error.message);
+      navigate('/login');
+    },
+});
 
-	
 
-	const { mutate: updateProfile, isPending: isUpdatingProfile } = useMutation({
-		mutationFn: async() => {
-			try {
-				const res = await fetch(`/api/users/update`, {
-					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-					},
-					body: JSON.stringify({
-						profileImg,
-					}),
-				})
-				const data = await res.json();
 
-				if (!res.ok) {
-					throw new Error(data.error || "Something went wrong");
-				}
-				return data
-			} catch (error) {
-				throw new Error(error);
-			}
-		},
-		onSuccess: () => {
-			toast.success("Profile updated successfully");
-			Promise.all([
-				queryClient.invalidateQueries({ queryKey: ["authUser"] }),
-				queryClient.invalidateQueries({ queryKey: ["userProfile"] }),
-			])
-		},
-		onError: (error) => {
-			toast.error(error.message);
-		}
-	})
+  const handleDeleteProfile = () => {
+    if (window.confirm("Are you sure you want to delete your profile? This action cannot be undone.")) {
+      deleteProfile();
+    }
+  };
+  
+  useEffect(() => {
+    refetch();
+  }, [username, refetch]);
 
-	const isMyProfile = authUser._id === user?._id;
-	const memberSinceDate = formatMemberSinceDate(user?.createdAt);
-	const amIFollowing = authUser?.following.includes(user?._id)
+  
 
-	const handleImgChange = (e, state) => {
+  const isMyProfile = authUser._id === user?._id;
+  const memberSinceDate = formatMemberSinceDate(user?.createdAt);
+  const amIFollowing = authUser?.following.includes(user?._id);
+
+  const handleImgChange = (e, state) => {
 		const file = e.target.files[0];
 		if (file) {
 			const reader = new FileReader();
 			reader.onload = () => {
-				state === "coverImg" && setCoverImg(reader.result);
 				state === "profileImg" && setProfileImg(reader.result);
 			};
 			reader.readAsDataURL(file);
 		}
 	};
 
-	useEffect(() => {
-		refetch()
-	}, [username, refetch])
+  
 
-	return (
-		<>
-			<div className='flex-[4_4_0]  border-r border-gray-700 min-h-screen '>
-				{/* HEADER */}
-				{(isLoading || isRefetching) && <ProfileHeaderSkeleton />}
-				{!isLoading && !isRefetching && !user && <p className='text-center text-lg mt-4'>User not found</p>}
-				<div className='flex flex-col'>
-					{!isLoading && !isRefetching && user && (
-						<>
-							<div className='flex gap-10 px-4 py-2 items-center'>
-								<Link to='/'>
-									<FaArrowLeft className='w-4 h-4' />
-								</Link>
-								<div className='flex flex-col'>
-									<p className='font-bold text-lg'>{user?.fullName}</p>
-									<span className='text-sm text-slate-500'>{POSTS?.length} posts</span>
-								</div>
-							</div>
-							{/* COVER IMG */}
-							<div className='relative group/cover'>
-								<img
-									src={coverImg || user?.coverImg || "/cover.png"}
-									className='h-52 w-full object-cover'
-									alt='cover image'
-								/>
-								{isMyProfile && (
-									<div
-										className='absolute top-2 right-2 rounded-full p-2 bg-gray-800 bg-opacity-75 cursor-pointer opacity-0 group-hover/cover:opacity-100 transition duration-200'
-										onClick={() => coverImgRef.current.click()}
-									>
-										<MdEdit className='w-5 h-5 text-white' />
-									</div>
-								)}
+  return (
+    <div className="flex-[4_4_0] min-h-screen">
+      {(isLoading || isRefetching) && <ProfileHeaderSkeleton />}
+      {!isLoading && !isRefetching && !user && (
+        <p className="text-center text-lg mt-4">User not found</p>
+      )}
+      
+      {!isLoading && !isRefetching && user && (
+        <div className="flex flex-col">
 
-								<input
-									type='file'
-									hidden
-                                    accept="image/*"
-									ref={coverImgRef}
-									onChange={(e) => handleImgChange(e, "coverImg")}
-								/>
-								<input
-									type='file'
-									hidden
-                                    accept="image/*"
-									ref={profileImgRef}
-									onChange={(e) => handleImgChange(e, "profileImg")}
-								/>
-								{/* USER AVATAR */}
-								<div className='avatar absolute -bottom-16 left-4'>
-									<div className='w-32 rounded-full relative group/avatar'>
-										<img src={profileImg || user?.profileImg || "/avatar-placeholder.png"} />
-										<div className='absolute top-5 right-3 p-1 bg-primary rounded-full group-hover/avatar:opacity-100 opacity-0 cursor-pointer'>
-											{isMyProfile && (
-												<MdEdit
-													className='w-4 h-4 text-white'
-													onClick={() => profileImgRef.current.click()}
-												/>
-											)}
-										</div>
-									</div>
-								</div>
-							</div>
-							<div className='flex justify-end px-4 mt-5'>
-								{isMyProfile && <EditProfileModal authUser={authUser} />}
-								{!isMyProfile && (
-									<button
-										className='btn btn-outline rounded-full btn-sm'
-										onClick={() => follow(user?._id)}
-									>
-										{isPending && "Loading..."}
-										{!isPending && amIFollowing && "Unfollow"}
-										{!isPending && !amIFollowing && "Follow"}
-									</button>
-								)}
-								{(profileImg) && (
-									<button
-										className='btn btn-primary rounded-full btn-sm text-white px-4 ml-2'
-										onClick={() => updateProfile()}
-									>
-										{isUpdatingProfile ? "Updating..." : "Update" }
-									</button>
-								)}
-							</div>
+          <div className="flex items-center px-4 py-2 border-b border-gray-700">
+            <Link to="/" className="p-2 hover:bg-gray-800 rounded-full">
+              <FaArrowLeft className="w-4 h-4" />
+            </Link>
+            <h1 className="ml-4 font-bold text-lg">{user?.username}</h1>
+          </div>
 
-							<div className='flex flex-col gap-4 mt-14 px-4'>
-								<div className='flex flex-col'>
-									<span className='font-bold text-lg'>{user?.fullName}</span>
-									<span className='text-sm text-slate-500'>@{user?.username}</span>
-									<span className='text-sm my-1'>{user?.bio}</span>
-								</div>
+          <div className="flex flex-col items-center px-4 pt-8 pb-4">
 
-								<div className='flex gap-2 flex-wrap'>
-									{user?.link && (
-										<div className='flex gap-1 items-center '>
-											<>
-												<FaLink className='w-3 h-3 text-slate-500' />
-												<a
-													href='https://youtube.com/@asaprogrammer_'
-													target='_blank'
-													rel='noreferrer'
-													className='text-sm text-blue-500 hover:underline'
-												>
-													youtube.com/@asaprogrammer_
-												</a>
-											</>
-										</div>
-									)}
-									<div className='flex gap-2 items-center'>
-										<IoCalendarOutline className='w-4 h-4 text-slate-500' />
-										<span className='text-sm text-slate-500'>
-											{memberSinceDate}
-										</span>
-									</div>
-								</div>
-								<div className='flex gap-2'>
-									<div className='flex gap-1 items-center'>
-										<span className='font-bold text-xs'>{user?.following.length}</span>
-										<span className='text-slate-500 text-xs'>Following</span>
-									</div>
-									<div className='flex gap-1 items-center'>
-										<span className='font-bold text-xs'>{user?.followers.length}</span>
-										<span className='text-slate-500 text-xs'>Followers</span>
-									</div>
-								</div>
-							</div>
-							<div className='flex w-full border-b border-gray-700 mt-4'>
-								<div
-									className='flex justify-center flex-1 p-3 hover:bg-secondary transition duration-300 relative cursor-pointer'
-									onClick={() => setFeedType("posts")}
-								>
-									Posts
-									{feedType === "posts" && (
-										<div className='absolute bottom-0 w-10 h-1 rounded-full bg-primary' />
-									)}
-								</div>
-								<div
-									className='flex justify-center flex-1 p-3 text-slate-500 hover:bg-secondary transition duration-300 relative cursor-pointer'
-									onClick={() => setFeedType("likes")}
-								>
-									Likes
-									{feedType === "likes" && (
-										<div className='absolute bottom-0 w-10  h-1 rounded-full bg-primary' />
-									)}
-								</div>
-							</div>
-						</>
-					)}
+            <div className="relative group mb-6">
+              <div className="avatar">
+                <div className="w-28 h-28 rounded-full ring ring-primary ring-offset-base-100 ring-offset-2">
+                  <img
+                    src={profileImg || user?.profileImg || "/avatar-placeholder.png"}
+                    alt="profile"
+                    className="rounded-full object-cover"
+                  />
+                </div>
+              </div>
+              {isMyProfile && (
+                <>
+                  <div
+                    className="absolute bottom-0 right-0 p-2 bg-primary rounded-full cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={() => profileImgRef.current.click()}
+                  >
+                    <MdEdit className="w-4 h-4 text-white" />
+                  </div>
+                  <input
+                    type="file"
+                    hidden
+                    accept="image/*"
+                    ref={profileImgRef}
+                    onChange={(e) => handleImgChange(e, "profileImg")}
+                  />
+                </>
+              )}
+            </div>
 
-					<Posts feedType={feedType} username={username} userId={user?._id}/>
-				</div>
-			</div>
-		</>
-	);
+            <div className="flex flex-col items-center gap-2 w-full max-w-md">
+              <div className="text-center">
+                <h2 className="text-xl font-bold">{user?.username}</h2>
+              </div>
+
+              <div className="flex gap-6 mt-4">
+                <div className="flex flex-col items-center">
+                  <span className="font-bold">{user?.following.length}</span>
+                  <span className="text-sm text-gray-500">Following</span>
+                </div>
+                <div className="flex flex-col items-center">
+                  <span className="font-bold">{user?.followers.length}</span>
+                  <span className="text-sm text-gray-500">Followers</span>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap justify-center gap-4 mt-4">
+        
+                <div className="flex items-center gap-1 text-gray-500">
+                  <IoCalendarOutline className="w-4 h-4" />
+                  <span className="text-sm">{memberSinceDate}</span>
+                </div>
+              </div>
+
+              <div className="flex gap-2 mt-4">
+                {isMyProfile ? (
+                  <>
+                    <EditProfileModal authUser={authUser} />
+                    {profileImg && (
+                      <button
+                        className="btn btn-primary btn-sm rounded-full"
+                        onClick={async () => {
+                          await updateProfile({ profileImg });
+                          setProfileImg(null);
+                        }}
+                      >
+                        {isUpdatingProfile ? "Updating..." : "Update Photo"}
+                      </button>
+                    )}
+                    <button
+                      className="btn btn-error btn-sm rounded-full"
+                      onClick={handleDeleteProfile}
+                      disabled={isDeleting}
+                    >
+                      {isDeleting ? "Deleting..." : "Delete Account"}
+                    </button>
+                  </>
+                  
+                ) : (
+                  <button
+                    className="btn btn-primary btn-sm rounded-full"
+                    onClick={() => follow(user?._id)}
+                  >
+                    {isPending ? "Loading..." : amIFollowing ? "Unfollow" : "Follow"}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <Posts feedType={feedType} username={username} userId={user?._id} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
 };
+
 export default ProfilePage;

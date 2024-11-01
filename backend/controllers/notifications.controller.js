@@ -19,6 +19,32 @@ export const getNotifications = async (req, res) => {
     }
 }
 
+export const getUnreadCount = async (req, res) => {
+    try {
+      const count = await Notification.countDocuments({
+        to: req.user._id,
+        read: false
+      });
+  
+      res.status(200).json({ count });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  };
+  
+export const markAllAsRead = async (req, res) => {
+    try {
+      await Notification.updateMany(
+        { to: req.user._id, read: false },
+        { $set: { read: true } }
+      );
+  
+      res.status(200).json({ message: "All notifications marked as read" });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+};
+
 export const deleteNotifications = async (req, res) => {
     try {
         const userId = req.user._id;

@@ -9,22 +9,36 @@ import { BsArrowRight } from "react-icons/bs";
 import toast from "react-hot-toast";
 
 const NotificationPage = () => {
-	const queryClient = useQueryClient();
-	
+  const queryClient = useQueryClient();
+  
   const { data: notifications, isLoading } = useQuery({
     queryKey: ["notifications"],
     queryFn: async() => {
       try {
-        const res = await fetch("/api/notifications");
-        const data = await res.json();
-
-        if (!res.ok) {
-          throw new Error(data.error || "Something went wrong");
+        // First, get the current user data
+        const userRes = await fetch("/api/auth/me");
+        const userData = await userRes.json();
+        
+        if (!userRes.ok) {
+          throw new Error(userData.error || "Failed to get user data");
         }
 
-        return data;
+        // Then get notifications
+        const notifRes = await fetch("/api/notifications");
+        const notifData = await notifRes.json();
+
+        if (!notifRes.ok) {
+          throw new Error(notifData.error || "Something went wrong");
+        }
+
+        // Filter out self-notifications
+        const filteredNotifications = notifData.filter(
+          notification => notification.from._id !== userData._id
+        );
+
+        return filteredNotifications;
       } catch (error) {
-        throw new Error(error);
+        throw new Error(error.message);
       }
     },
   });
@@ -48,7 +62,7 @@ const NotificationPage = () => {
     },
     onSuccess: () => {
       toast.success("Notifications deleted successfully");
-	  queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
     },
     onError: (error) => {
       toast.error(error.message);
@@ -93,8 +107,8 @@ const NotificationPage = () => {
 
   return (
     <>
-      <div className="flex-[4_4_0] border-l border-r border-gray-700 min-h-screen">
-        <div className="flex justify-between items-center p-4 border-b border-gray-700">
+      <div className="flex-[4_4_0] min-h-screen">
+        <div className="flex justify-between items-center p-4 ">
           <p className="font-bold">Notifications</p>
           <div className="dropdown">
             <div tabIndex={0} role="button" className="m-1">
@@ -124,7 +138,7 @@ const NotificationPage = () => {
         )}
 
         {notifications?.map((notification) => (
-          <div className="border-b border-gray-700" key={notification._id}>
+          <div key={notification._id}>
             <div className="flex gap-2 p-4">
               {getNotificationIcon(notification.type)}
               <Link to={`/profile/${notification.from.username}`}>

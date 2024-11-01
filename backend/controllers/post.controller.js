@@ -131,47 +131,47 @@ export const adaptNextPost = async (req, res) => {
 };
 
 export const likeUnlikePost = async (req, res) => {
-    try {
-        const userId = req.user._id;
-        const { id:postId } = req.params;
+	try {
+		const userId = req.user._id;
+		const { id: postId } = req.params;
 
-        const post = await Post.findById(postId);
+		const post = await Post.findById(postId);
 
-        if (!post) {
-            return res.status(404).json({ error: "Post not Found" });
-        }
+		if (!post) {
+			return res.status(404).json({ error: "Post not found" });
+		}
 
-        const userLikedPost = post.likes.includes(userId);
+		const userLikedPost = post.likes.includes(userId);
 
-        if (userLikedPost) {
-            await Post.updateOne({ _id: postId }, { $pull: { likes: userId }} );
-            await User.updateOne({ _id: userId }, { $pull: { likedPosts: postId }} );
+		if (userLikedPost) {
+			
+			await Post.updateOne({ _id: postId }, { $pull: { likes: userId } });
+			await User.updateOne({ _id: userId }, { $pull: { likedPosts: postId } });
 
-            const updatedLikes = post.likes.filter((id) => id.toString() !== userId.toString());
-            res.status(200).json(updatedLikes);
-        } else {
+			const updatedLikes = post.likes.filter((id) => id.toString() !== userId.toString());
+			res.status(200).json(updatedLikes);
+		} else {
+			
+			post.likes.push(userId);
+			await User.updateOne({ _id: userId }, { $push: { likedPosts: postId } });
+			await post.save();
 
-            post.likes.push(userId);
-            await User.updateOne({ _id: userId }, { $push: { likedPosts: postId } });
-            await post.save();
-            
-            const notification = new Notification({
-                from: userId,
-                to: post.user,
-                type: 'like'
-            });
+			const notification = new Notification({
+				from: userId,
+				to: post.user,
+				type: "like",
+			});
+			await notification.save();
 
-            await notification.save();
+			const updatedLikes = post.likes;
+			res.status(200).json(updatedLikes);
+		}
+	} catch (error) {
+		console.log("Error in likeUnlikePost controller: ", error);
+		res.status(500).json({ error: "Internal server error" });
+	}
+};
 
-            const updatedLikes = post.likes;
-            res.status(200).json(updatedLikes);
-        }
-
-    } catch (error) {
-        console.log("Error in likeUnlikePost", error.message);
-        res.status(500).json({ message: "Internal Server Error" });
-    }
-}
 
 export const getAllPost = async (req, res) => {
   try {
@@ -266,11 +266,9 @@ export const deleteAdaptEdit = async (req, res) => {
     if (adaptEditIndex === -1) {
       return res.status(404).json({ error: "AdaptEdit not found" });
     }
-
-    // Remove the adaptEdit object from the post
+    
     post.adaptEdits.splice(adaptEditIndex, 1);
 
-    // Save the updated post
     await post.save();
 
     res.status(200).json({ message: "AdaptEdit deleted successfully" });
@@ -373,106 +371,3 @@ export const getUserPosts = async (req, res) => {
     res.status(500).json({ message: "Internal Server Error" });
   }
 }
-
-export const likeUnlikeAdaptEdit = async (req, res) => {
-  try {
-    const userId = req.user._id;
-    const adaptEditId = req.params.id;
-
-    const post = await Post.findOne({
-      "adaptEdits._id": adaptEditId
-    });
-
-    if (!post) {
-      return res.status(404).json({ error: "Post or AdaptEdit not found" });
-    }
-
-    const adaptEdit = post.adaptEdits.find(
-      (edit) => edit._id.toString() === adaptEditId
-    );
-
-    if (!adaptEdit) {
-      return res.status(404).json({ error: "AdaptEdit not found" });
-    }
-
-    const userLikedAdaptEdit = adaptEdit.likes?.includes(userId);
-
-    if (userLikedAdaptEdit) {
-      // Unlike
-      adaptEdit.likes = adaptEdit.likes.filter(
-        (id) => id.toString() !== userId.toString()
-      );
-    } else {
-      // Like
-      if (!adaptEdit.likes) {
-        adaptEdit.likes = [];
-      }
-      adaptEdit.likes.push(userId);
-
-      // Create notification
-      const notification = new Notification({
-        from: userId,
-        to: adaptEdit.user,
-        type: 'likeAdaptEdit'
-      });
-      await notification.save();
-    }
-
-    await post.save();
-    res.status(200).json(adaptEdit.likes);
-  } catch (error) {
-    console.log("Error in likeUnlikeAdaptEdit", error.message);
-    res.status(500).json({ message: "Internal Server Error" });
-  }
-};
-
-export const likeUnlikeAdaptNext = async (req, res) => {
-  try {
-    const userId = req.user._id;
-    const adaptNextId = req.params.id;
-
-    const post = await Post.findOne({
-      "adaptNexts._id": adaptNextId
-    });
-
-    if (!post) {
-      return res.status(404).json({ error: "Post or AdaptNext not found" });
-    }
-
-    const adaptNext = post.adaptNexts.find(
-      (next) => next._id.toString() === adaptNextId
-    );
-
-    if (!adaptNext) {
-      return res.status(404).json({ error: "AdaptNext not found" });
-    }
-    const userLikedAdaptNext = adaptNext.likes?.includes(userId);
-
-    if (userLikedAdaptNext) {
-      // Unlike
-      adaptNext.likes = adaptNext.likes.filter(
-        (id) => id.toString() !== userId.toString()
-      );
-    } else {
-      // Like
-      if (!adaptNext.likes) {
-        adaptNext.likes = [];
-      }
-      adaptNext.likes.push(userId);
-
-      // Create notification
-      const notification = new Notification({
-        from: userId,
-        to: adaptNext.user,
-        type: 'likeAdaptNext'
-      });
-      await notification.save();
-    }
-
-    await post.save();
-    res.status(200).json(adaptNext.likes);
-  } catch (error) {
-    console.log("Error in likeUnlikeAdaptNext", error.message);
-    res.status(500).json({ message: "Internal Server Error" });
-  }
-};
