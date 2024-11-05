@@ -295,11 +295,8 @@ export const deleteAdaptNext = async (req, res) => {
     if (adaptNextIndex === -1) {
       return res.status(404).json({ error: "AdaptNext not found" });
     }
-
-    // Remove the adaptEdit object from the post
     post.adaptNexts.splice(adaptNextIndex, 1);
-
-    // Save the updated post
+	  
     await post.save();
 
     res.status(200).json({ message: "AdaptNext deleted successfully" });
